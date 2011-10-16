@@ -371,7 +371,6 @@ struct fsg_dev {
 
 	struct wake_lock wake_lock;
 	int			cdrom_lun;
-	int			cdrom_cttype;
 };
 
 static inline struct fsg_dev *func_to_dev(struct usb_function *f)
@@ -407,21 +406,14 @@ static struct t_usb_status_notifier connect_status_notifier = {
 	.name = "connect_status",
 	.func = fsg_set_ums_state,
 };
-/* for ctcmd  */
-extern struct switch_dev compositesdev;
-extern int htcctusbcmd;
+
 /*-------------------------------------------------------------------------*/
 
 static void fsg_set_ums_state(int connect_status)
 {
-
-	char *envp[3] = {"SWITCH_NAME=htcctusbcmd",
-			"SWITCH_STATE=None", 0};
-
 	if (!the_fsg)
 		return;
 	printk(KERN_INFO "%s: %d\n", __func__, connect_status);
-
 	/* USB connected */
 	if (connect_status == 1) {
 		/* only need to change state when connect to USB host */
@@ -435,10 +427,6 @@ static void fsg_set_ums_state(int connect_status)
 			the_fsg->ums_state = 0;
 			printk(KERN_INFO "ums: set state 0\n");
 			switch_set_state(&the_fsg->sdev, 0);
-		}
-		if (the_fsg->cdrom_cttype) {
-			htcctusbcmd = 0;
-			kobject_uevent_env(&compositesdev.dev->kobj, KOBJ_CHANGE, envp);
 		}
 	}
 }
@@ -1535,9 +1523,6 @@ static int do_start_stop(struct fsg_dev *fsg)
 	int		loej, start;
 	char *envp[3] = {"SWITCH_NAME=usb_mass_storage",
 			"SWITCH_STATE=eject", 0};
-	char *envp1[3] = {"FUNCTION=usb_mass_storage",
-			"ENABLED=2", 0};
-
 
 	/* int immed = fsg->cmnd[1] & 0x01; */
 	loej = fsg->cmnd[4] & 0x02;
@@ -1550,10 +1535,6 @@ static int do_start_stop(struct fsg_dev *fsg)
 			curlun->unit_attention_data = SS_MEDIUM_NOT_PRESENT;
 			if (curlun->cdrom) {
 				printk(KERN_INFO "ums: eject\n");
-
-				/* send composite uevent */
-				kobject_uevent_env(&fsg->function.dev->kobj, KOBJ_CHANGE, envp1);
-
 				kobject_uevent_env(&fsg->sdev.dev->kobj,
 					KOBJ_CHANGE, envp);
 			}
@@ -2231,17 +2212,7 @@ unknown_cmd:
 static int received_cbw(struct fsg_dev *fsg, struct fsg_buffhd *bh)
 {
 	struct usb_request	*req = bh->outreq;
-	struct bulk_cb_wrap	*cbw;
-
-	/* don't know why req become NULL and cause exception.
-	 * checking req address here
-	 */
-	if (req == NULL) {
-		printk(KERN_ERR "%s return because req is NULL\n", __func__);
-		return -EINVAL;
-	}
-
-	cbw = req->buf;
+	struct bulk_cb_wrap	*cbw = req->buf;
 
 	/* Was this a real packet? */
 	if (req->status)
@@ -3118,8 +3089,6 @@ static int fsg_probe(struct platform_device *pdev)
 			fsg->release = pdata->release;
 		fsg->nluns = pdata->nluns;
 		fsg->cdrom_lun = pdata->cdrom_lun;
-		fsg->cdrom_cttype = pdata->cdrom_cttype;
-
 	}
 
 	return 0;
@@ -3202,4 +3171,5 @@ static int __init init(void)
 	return 0;
 }
 module_init(init);
+
 

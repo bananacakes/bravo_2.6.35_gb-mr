@@ -467,25 +467,9 @@ int android_switch_function(unsigned func)
 	printk(KERN_INFO "%s: %u\n", __func__, func);
 
 	list_for_each_entry(f, &android_config_driver.functions, list) {
-#if 0
 		if ((func & (1 << USB_FUNCTION_UMS)) &&
 			!strcmp(f->name, "usb_mass_storage"))
 			f->hidden = 0;
-#else
-		/* send composite uevent when ums state changed
-		 */
-		if (!strcmp(f->name, "usb_mass_storage")) {
-			if (f->hidden && (func & (1 << USB_FUNCTION_UMS)))	{
-				// siwtch to enabled
-				f->hidden = 0;
-				kobject_uevent(&f->dev->kobj, KOBJ_CHANGE);
-			} else if (!f->hidden && !(func & (1 << USB_FUNCTION_UMS))) {
-				// siwtch to disabled
-				f->hidden = 1;
-				kobject_uevent(&f->dev->kobj, KOBJ_CHANGE);
-			}
-		}
-#endif
 		else if ((func & (1 << USB_FUNCTION_ADB)) &&
 			!strcmp(f->name, "adb"))
 			f->hidden = 0;
@@ -554,20 +538,12 @@ int android_switch_function(unsigned func)
 
 #ifdef CONFIG_USB_GADGET_MSM_72K
 	/* avoid sending a disconnect switch event until after we disconnect */
-	dev->cdev->mute_switch = 1;
 	msm_hsusb_request_reset();
 #else
-	/* force reenumeration */
-	if (dev->cdev && dev->cdev->gadget &&
-			dev->cdev->gadget->speed != USB_SPEED_UNKNOWN) {
-
-		/* avoid sending a disconnect switch event until after we disconnect */
-		dev->cdev->mute_switch = 1;
-
-		usb_gadget_disconnect(dev->cdev->gadget);
-		msleep(10);
-		usb_gadget_connect(dev->cdev->gadget);
-		}
+        usb_gadget_disconnect(dev->cdev->gadget);
+	msleep(10);
+	usb_gadget_connect(dev->cdev->gadget);
+}
 #endif
 	return 0;
 }
@@ -727,3 +703,4 @@ static void __exit cleanup(void)
 	_android_dev = NULL;
 }
 module_exit(cleanup);
+
