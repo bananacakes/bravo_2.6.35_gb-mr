@@ -7,5 +7,5 @@ obj-y += routing.o
 obj-y += audio_ctl.o
 obj-y += msm_q6vdec.o
 obj-y += msm_q6venc.o
-obj-y += aac_in.o
+obj-y += aac_in.o amrnb_in.o
 obj-y += qcelp_in.o
