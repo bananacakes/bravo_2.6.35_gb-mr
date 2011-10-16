@@ -1,5 +1,5 @@
 /*
- * drivers/cpufreq/cpufreq_interactive.c
+ * drivers/cpufreq/cpufreq_interactivex.c
  *
  * Copyright (C) 2010 Google, Inc.
  *
@@ -12,7 +12,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * Author: Mike Chan (mike@android.com)
+ * Author: Mike Chan (mike@android.com) - modified for suspend/wake by imoseyon
  *
  */
 
@@ -24,6 +24,7 @@
 #include <linux/tick.h>
 #include <linux/timer.h>
 #include <linux/workqueue.h>
+#include <linux/earlysuspend.h>
 
 #include <asm/cputime.h>
 
@@ -48,6 +49,9 @@ static u64 freq_change_time_in_idle;
 
 static cpumask_t work_cpumask;
 
+static unsigned int suspended = 0;
+static unsigned int enabled = 0;
+
 /*
  * The minimum ammount of time to spend at a frequency before we can ramp down,
  * default is 50ms.
@@ -55,20 +59,27 @@ static cpumask_t work_cpumask;
 #define DEFAULT_MIN_SAMPLE_TIME 50000;
 static unsigned long min_sample_time;
 
-static int cpufreq_governor_interactive(struct cpufreq_policy *policy,
+#define FREQ_THRESHOLD 998400;
+#define RESUME_SPEED 998400;
+
+static int cpufreq_governor_interactivex(struct cpufreq_policy *policy,
 		unsigned int event);
 
-#ifndef CONFIG_CPU_FREQ_DEFAULT_GOV_INTERACTIVE
+#ifndef CONFIG_CPU_FREQ_DEFAULT_GOV_INTERACTIVEX
 static
 #endif
-struct cpufreq_governor cpufreq_gov_interactive = {
-	.name = "interactive",
-	.governor = cpufreq_governor_interactive,
+struct cpufreq_governor cpufreq_gov_interactivex = {
+	.name = "interactiveX",
+	.governor = cpufreq_governor_interactivex,
+#if defined(CONFIG_ARCH_MSM_SCORPION)
+	.max_transition_latency = 8000000,
+#else
 	.max_transition_latency = 10000000,
+#endif
 	.owner = THIS_MODULE,
 };
 
-static void cpufreq_interactive_timer(unsigned long data)
+static void cpufreq_interactivex_timer(unsigned long data)
 {
 	u64 delta_idle;
 	u64 update_time;
@@ -97,6 +108,7 @@ static void cpufreq_interactive_timer(unsigned long data)
 			return;
 
 		target_freq = policy->max;
+
 		cpumask_set_cpu(data, &work_cpumask);
 		queue_work(up_wq, &freq_scale_work);
 		return;
@@ -158,11 +170,12 @@ static void cpufreq_idle(void)
  * Choose the cpu frequency based off the load. For now choose the minimum
  * frequency that will satisfy the load, which is not always the lower power.
  */
-static unsigned int cpufreq_interactive_calc_freq(unsigned int cpu)
+static unsigned int cpufreq_interactivex_calc_freq(unsigned int cpu)
 {
 	unsigned int delta_time;
 	unsigned int idle_time;
 	unsigned int cpu_load;
+	unsigned int newfreq;
 	u64 current_wall_time;
 	u64 current_idle_time;;
 
@@ -173,33 +186,38 @@ static unsigned int cpufreq_interactive_calc_freq(unsigned int cpu)
 
 	cpu_load = 100 * (delta_time - idle_time) / delta_time;
 
-	return policy->cur * cpu_load / 100;
+	if (cpu_load > 98) newfreq = policy->max;
+	else newfreq = policy->cur * cpu_load / 100;	
+
+	return newfreq;
 }
 
 
 /* We use the same work function to sale up and down */
-static void cpufreq_interactive_freq_change_time_work(struct work_struct *work)
+static void cpufreq_interactivex_freq_change_time_work(struct work_struct *work)
 {
 	unsigned int cpu;
+	unsigned int newtarget;
 	cpumask_t tmp_mask = work_cpumask;
+	newtarget = FREQ_THRESHOLD;
+
 	for_each_cpu(cpu, tmp_mask) {
+	  if (!suspended) {
 		if (target_freq == policy->max) {
 			if (nr_running() == 1) {
 				cpumask_clear_cpu(cpu, &work_cpumask);
 				return;
 			}
-
-			__cpufreq_driver_target(policy, target_freq,
-					CPUFREQ_RELATION_H);
+//			__cpufreq_driver_target(policy, target_freq, CPUFREQ_RELATION_H);
+			__cpufreq_driver_target(policy, newtarget, CPUFREQ_RELATION_H);
 		} else {
-			target_freq = cpufreq_interactive_calc_freq(cpu);
+			target_freq = cpufreq_interactivex_calc_freq(cpu);
 			__cpufreq_driver_target(policy, target_freq,
 							CPUFREQ_RELATION_L);
 		}
-		freq_change_time_in_idle = get_cpu_idle_time_us(cpu,
-							&freq_change_time);
-
-		cpumask_clear_cpu(cpu, &work_cpumask);
+	  }
+	  freq_change_time_in_idle = get_cpu_idle_time_us(cpu, &freq_change_time);
+	  cpumask_clear_cpu(cpu, &work_cpumask);
 	}
 
 
@@ -220,17 +238,49 @@ static ssize_t store_min_sample_time(struct kobject *kobj,
 static struct global_attr min_sample_time_attr = __ATTR(min_sample_time, 0644,
 		show_min_sample_time, store_min_sample_time);
 
-static struct attribute *interactive_attributes[] = {
+static struct attribute *interactivex_attributes[] = {
 	&min_sample_time_attr.attr,
 	NULL,
 };
 
-static struct attribute_group interactive_attr_group = {
-	.attrs = interactive_attributes,
-	.name = "interactive",
+static struct attribute_group interactivex_attr_group = {
+	.attrs = interactivex_attributes,
+	.name = "interactiveX",
 };
 
-static int cpufreq_governor_interactive(struct cpufreq_policy *new_policy,
+static void interactivex_suspend(int suspend)
+{
+	unsigned int max_speed;
+
+	max_speed = RESUME_SPEED;
+
+	if (!enabled) return;
+        if (!suspend) { // resume at max speed:
+		suspended = 0;
+                __cpufreq_driver_target(policy, max_speed, CPUFREQ_RELATION_L);
+                pr_info("[imoseyon] interactiveX awake at %d\n", policy->cur);
+        } else {
+		suspended = 1;
+                __cpufreq_driver_target(policy, policy->min, CPUFREQ_RELATION_L);
+                pr_info("[imoseyon] interactiveX suspended at %d\n", policy->cur);
+        }
+}
+
+static void interactivex_early_suspend(struct early_suspend *handler) {
+     interactivex_suspend(1);
+}
+
+static void interactivex_late_resume(struct early_suspend *handler) {
+     interactivex_suspend(0);
+}
+
+static struct early_suspend interactivex_power_suspend = {
+        .suspend = interactivex_early_suspend,
+        .resume = interactivex_late_resume,
+        .level = EARLY_SUSPEND_LEVEL_DISABLE_FB + 1,
+};
+
+static int cpufreq_governor_interactivex(struct cpufreq_policy *new_policy,
 		unsigned int event)
 {
 	int rc;
@@ -247,13 +297,16 @@ static int cpufreq_governor_interactive(struct cpufreq_policy *new_policy,
 			return 0;
 
 		rc = sysfs_create_group(cpufreq_global_kobject,
-				&interactive_attr_group);
+				&interactivex_attr_group);
 		if (rc)
 			return rc;
 
 		pm_idle_old = pm_idle;
 		pm_idle = cpufreq_idle;
 		policy = new_policy;
+		enabled = 1;
+        	register_early_suspend(&interactivex_power_suspend);
+        	pr_info("[imoseyon] interactiveX active\n");
 		break;
 
 	case CPUFREQ_GOV_STOP:
@@ -261,10 +314,13 @@ static int cpufreq_governor_interactive(struct cpufreq_policy *new_policy,
 			return 0;
 
 		sysfs_remove_group(cpufreq_global_kobject,
-				&interactive_attr_group);
+				&interactivex_attr_group);
 
 		pm_idle = pm_idle_old;
 		del_timer(&per_cpu(cpu_timer, new_policy->cpu));
+		enabled = 0;
+        	unregister_early_suspend(&interactivex_power_suspend);
+        	pr_info("[imoseyon] interactiveX inactive\n");
 			break;
 
 	case CPUFREQ_GOV_LIMITS:
@@ -279,7 +335,7 @@ static int cpufreq_governor_interactive(struct cpufreq_policy *new_policy,
 	return 0;
 }
 
-static int __init cpufreq_interactive_init(void)
+static int __init cpufreq_interactivex_init(void)
 {
 	unsigned int i;
 	struct timer_list *t;
@@ -289,7 +345,7 @@ static int __init cpufreq_interactive_init(void)
 	for_each_possible_cpu(i) {
 		t = &per_cpu(cpu_timer, i);
 		init_timer_deferrable(t);
-		t->function = cpufreq_interactive_timer;
+		t->function = cpufreq_interactivex_timer;
 		t->data = i;
 	}
 
@@ -297,27 +353,29 @@ static int __init cpufreq_interactive_init(void)
 	up_wq = create_workqueue("kinteractive_up");
 	down_wq = create_workqueue("knteractive_down");
 
-	INIT_WORK(&freq_scale_work, cpufreq_interactive_freq_change_time_work);
+	INIT_WORK(&freq_scale_work, cpufreq_interactivex_freq_change_time_work);
 
-	return cpufreq_register_governor(&cpufreq_gov_interactive);
+        pr_info("[imoseyon] interactiveX enter\n");
+	return cpufreq_register_governor(&cpufreq_gov_interactivex);
 }
 
-#ifdef CONFIG_CPU_FREQ_DEFAULT_GOV_INTERACTIVE
-pure_initcall(cpufreq_interactive_init);
+#ifdef CONFIG_CPU_FREQ_DEFAULT_GOV_INTERACTIVEX
+fs_initcall(cpufreq_interactivex_init);
 #else
-module_init(cpufreq_interactive_init);
+module_init(cpufreq_interactivex_init);
 #endif
 
-static void __exit cpufreq_interactive_exit(void)
+static void __exit cpufreq_interactivex_exit(void)
 {
-	cpufreq_unregister_governor(&cpufreq_gov_interactive);
+        pr_info("[imoseyon] interactiveX exit\n");
+	cpufreq_unregister_governor(&cpufreq_gov_interactivex);
 	destroy_workqueue(up_wq);
 	destroy_workqueue(down_wq);
 }
 
-module_exit(cpufreq_interactive_exit);
+module_exit(cpufreq_interactivex_exit);
 
 MODULE_AUTHOR("Mike Chan <mike@android.com>");
-MODULE_DESCRIPTION("'cpufreq_interactive' - A cpufreq governor for "
+MODULE_DESCRIPTION("'cpufreq_interactiveX' - A cpufreq governor for "
 	"Latency sensitive workloads");
 MODULE_LICENSE("GPL");
