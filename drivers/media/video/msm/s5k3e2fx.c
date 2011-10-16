@@ -23,7 +23,7 @@ static uint16_t g_usModuleVersion;	/*0: rev.4, 1: rev.5 */
 #ifdef CONFIG_MACH_PASSIONC
 #define REG_PLL_MULTIPLIER_LSB_VALUE      0xA6
 #else
-#define REG_PLL_MULTIPLIER_LSB_VALUE	  0x90
+#define REG_PLL_MULTIPLIER_LSB_VALUE	  0xA0
 #endif
 /* 0xA6 for PCLK=83MHz */
 /* 0xA0 for PCLK=80MHz */
@@ -49,7 +49,12 @@ static uint16_t g_usModuleVersion;	/*0: rev.4, 1: rev.5 */
 #define REG_GROUPED_PARAMETER_HOLD    0x0104
 #define GROUPED_PARAMETER_HOLD        0x01
 #define GROUPED_PARAMETER_UPDATE      0x00
-
+   
+/* Greenish in low light */ 
+#define REG_MASK_CORRUPTED_FRAMES     0x0105 
+#define MASK                          0x01 
+#define NO_MASK                       0x00 
+ 
 /* PLL Registers */
 #define REG_PRE_PLL_CLK_DIV           0x0305
 #define REG_PLL_MULTIPLIER_MSB        0x0306
@@ -2378,6 +2383,27 @@ static int s5k3e2fc_setting_PREIODIC_EVT5(enum msm_s_setting rt)
 			{0x3063, 0x16},
 		}
 	};
+ 
+        /* Most registers are directly applied at next frame after 
+           writing except shutter and analog gain. Shutter and gain are 
+           applied at 2nd or 1st frame later depending on register 
+           writing time. When the camera is switched from preview to 
+           snapshot, the first frame may have wrong shutter/gain and 
+           should be discarded. The register REG_MASK_CORRUPTED_FRAMES 
+           can discard the frame that has wrong shutter/gain. But in 
+           preview mode, the frames should not be dropped. Otherwise 
+           the preview will not be smooth. */ 
+        if (rt == S_RES_PREVIEW) { 
+          /* Frames will be not discarded after exposure and gain are 
+             written. */ 
+          s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr, 
+            REG_MASK_CORRUPTED_FRAMES, NO_MASK); 
+        } else { 
+          /* Solve greenish in lowlight. Prevent corrupted frame */ 
+          s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr, 
+            REG_MASK_CORRUPTED_FRAMES, MASK); 
+        } 
+ 
 /* solve greenish: hold for both */
 				rc = s5k3e2fx_i2c_write_b(
 					s5k3e2fx_client->addr,
@@ -2725,6 +2751,7 @@ static int s5k3e2fx_probe_init_lens_correction(
 		const struct msm_camera_sensor_info *data)
 {
 	int rc = 0;
+
 	/* LC setting */
 	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,
 			     S5K3E2FX_REG_SOFTWARE_RESET,
@@ -2733,7 +2760,6 @@ static int s5k3e2fx_probe_init_lens_correction(
 	s5k3e2fx_i2c_write_b(s5k3e2fx_client->addr,
 			     S5K3E2FX_REG_MODE_SELECT,
 			     S5K3E2FX_MODE_SELECT_SW_STANDBY);
-
 	/*20090811  separates the EVT4/EVT5 sensor init and LC setting start */
 	if (g_usModuleVersion == 0)
 		s5k3e2fx_i2c_write_table(
