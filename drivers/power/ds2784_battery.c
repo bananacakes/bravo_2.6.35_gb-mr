@@ -159,12 +159,12 @@ static int Full_0;
 #define CHARGE_SLOW	1
 #define CHARGE_FAST	2
 
-#define TEMP_CRITICAL	600 /* no charging at all */
-#define TEMP_HOT	500 /* no fast charge, no charge > 4.1v */
-#define TEMP_WARM	450 /* no fast charge above this */
+#define TEMP_CRITICAL	800 /* no charging at all */
+#define TEMP_HOT	700 /* no fast charge, no charge > 4.1v */
+#define TEMP_WARM	650 /* no fast charge above this */
 
-#define TEMP_HOT_MAX_MV	4100 /* stop charging here when hot */
-#define TEMP_HOT_MIN_MV	3800 /* resume charging here when hot */
+#define TEMP_HOT_MAX_MV	4500 /* stop charging here when hot */
+#define TEMP_HOT_MIN_MV	4200 /* resume charging here when hot */
 
 #define TEMP_CRITICAL_BC	    570 /* no charging at all */
 #define TEMP_CRITICAL_RECHG_BC  550 /* recharge at 1.temp <= 55C and 2. Vb < 3.8V */
@@ -873,14 +873,14 @@ if (machine_is_bravoc()) {
 	* to 100)
 	 */
 	if (htc_batt_info.rep.charging_source != 0) {
-		if (htc_batt_info.rep.level <= 95)
+		if (htc_batt_info.rep.level <= 99)
 			htc_batt_info.rep.battery_full = 0;
 
 		if (htc_batt_info.rep.battery_full)
-			charge_mode = CHARGE_OFF;
+			charge_mode = CHARGE_SLOW;
 		else if (htc_batt_info.rep.level == 100) {
 			htc_batt_info.rep.battery_full = 1;
-			charge_mode = CHARGE_OFF;
+			charge_mode = CHARGE_SLOW;
 		}
 	} else
 		htc_batt_info.rep.battery_full = 0;
@@ -981,13 +981,13 @@ if (machine_is_bravoc()) {
 		htc_batt_info.rep.battery_full = 0;
 
 	if (htc_batt_info.rep.battery_full)
-		charge_mode = CHARGE_OFF;
+		charge_mode = CHARGE_SLOW;
 	else if ((htc_batt_info.rep.guage_status_reg & 0x80) &&
 	    (htc_batt_info.rep.batt_current <= 80) &&
 	    (htc_batt_info.rep.level == 100)) {
 	    	if (More_Charge_Extend_Time()) {
 				htc_batt_info.rep.battery_full = 1;
-			charge_mode = CHARGE_OFF;
+			charge_mode = CHARGE_SLOW;
 		}
 	}
 
