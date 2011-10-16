@@ -52,6 +52,9 @@ struct microp_ls_info {
 	int als_intr_enabled;
 	int is_suspend;
 	int old_intr_cmd;
+
+	uint8_t lsauto;
+	uint8_t spienab;
 };
 
 struct microp_ls_info *ls_info;
@@ -63,6 +66,8 @@ static DECLARE_DELAYED_WORK(enable_intr_work, enable_intr_do_work);
 
 static void lightsensor_do_work(struct work_struct *w);
 static DECLARE_WORK(lightsensor_work, lightsensor_do_work);
+
+static void read_spi_status(void);
 
 void set_ls_kvalue(struct microp_ls_info *li)
 {
@@ -119,13 +124,17 @@ static int get_ls_adc_level(uint8_t *data)
 	struct microp_ls_info *li = ls_info;
 	uint8_t i, adc_level = 0;
 	uint16_t adc_value = 0;
+	static uint16_t old_value = 0;
 
 	data[0] = 0x00;
 	data[1] = li->ls_config->channel;
 	if (microp_read_adc(data))
 		return -1;
 
-	adc_value = data[0]<<8 | data[1];
+	read_spi_status();
+
+	adc_value = old_value = ls_info->lsauto ? (data[0]<<8 | data[1]) : old_value;
+
 	if (adc_value > 0x3FF) {
 		printk(KERN_WARNING "%s: get wrong value: 0x%X\n",
 			__func__, adc_value);
@@ -142,8 +151,7 @@ static int get_ls_adc_level(uint8_t *data)
 			if (adc_value <=
 				li->ls_config->levels[i]) {
 				adc_level = i;
-				if (li->ls_config->levels[i])
-					break;
+			   	break;
 			}
 		}
 		ILS("ALS value: 0x%X, level: %d #\n",
@@ -389,14 +397,9 @@ static DEVICE_ATTR(ls_adc, 0664, ls_adc_show, NULL);
 static ssize_t ls_enable_show(struct device *dev,
 				  struct device_attribute *attr, char *buf)
 {
-	uint8_t data[2] = {0, 0};
-	int ret;
-
-	microp_i2c_read(MICROP_I2C_RCMD_SPI_BL_STATUS, data, 2);
-	ret = sprintf(buf, "Light sensor Auto = %d, SPI enable = %d\n",
-				data[0], data[1]);
-
-	return ret;
+	read_spi_status();
+	return sprintf(buf, "Light sensor Auto = %d, SPI enable = %d\n",
+				  ls_info->lsauto, ls_info->spienab); 
 }
 
 static ssize_t ls_enable_store(struct device *dev,
@@ -502,6 +505,14 @@ static void light_sensor_resume(struct early_suspend *h)
 	li->is_suspend = 0;
 }
 #endif
+
+static void read_spi_status()
+{
+	uint8_t data[2] = {0, 0};
+	microp_i2c_read(MICROP_I2C_RCMD_SPI_BL_STATUS, data, 2);
+	ls_info->lsauto = data[0];
+	ls_info->spienab = data[1];
+}
 
 static int lightsensor_probe(struct platform_device *pdev)
 {
