@@ -636,4 +636,3 @@ unsigned int acpuclk_get_vdd_step(void)
 
 #endif
 
-
