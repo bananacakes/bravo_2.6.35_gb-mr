@@ -152,7 +152,7 @@ extern int rcu_nmi_seen;
 # define rcu_nmi_enter() do { rcu_nmi_seen = 1; } while (0)
 # define rcu_nmi_exit() do { } while (0)
 #elif defined(CONFIG_NO_HZ)
-#if defined(CONFIG_TINY_RCU)
+#if defined(CONFIG_TINY_RCU) || defined(CONFIG_TINY_PREEMPT_RCU)
 extern void rcu_enter_nohz(void);
 extern void rcu_exit_nohz(void);
 
