@@ -9385,6 +9385,7 @@ void synchronize_sched_expedited(void)
 	put_online_cpus();
 }
 EXPORT_SYMBOL_GPL(synchronize_sched_expedited);
+EXPORT_SYMBOL_GPL(nr_running);
 
 #endif /* #else #ifndef CONFIG_SMP */
 #endif /* CONFIG_SCHED_BFS */
