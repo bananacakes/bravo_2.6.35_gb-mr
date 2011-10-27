@@ -74,8 +74,8 @@ static struct {
 	int mask;
 	int level;
 } mmc_vdd_table[] = {
-	{ MMC_VDD_28_29,	2850 },
-	{ MMC_VDD_29_30,	2900 },
+	{ MMC_VDD_26_27,	2750 },
+	{ MMC_VDD_27_28,	2800 },
 };
 
 static uint32_t bravo_sdslot_switchvdd(struct device *dev, unsigned int vdd)
